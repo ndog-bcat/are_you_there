@@ -1,31 +1,45 @@
 ﻿<Window x:Class="are_you_there.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:local="clr-namespace:are_you_there"
-        mc:Ignorable="d"
-        Title="MainWindow" Height="450" Width="800">
+        Title="ADHD Focus Audio" Height="450" Width="600" Background="#F4F4F4">
     <Grid>
-        <Button x:Name="StartButton" Content="Start" HorizontalAlignment="Left" Margin="220,339,0,0" VerticalAlignment="Top" RenderTransformOrigin="0.5,0.5" Height="50" Width="120" Click="StartButton_Click" FontSize="36" FontFamily="Hancom MalangMalang Bold" FontWeight="Bold">
-            <Button.RenderTransform>
-                <TransformGroup>
-                    <ScaleTransform/>
-                    <SkewTransform/>
-                    <RotateTransform Angle="0.469"/>
-                    <TranslateTransform/>
-                </TransformGroup>
-            </Button.RenderTransform>
-        </Button>
-        <Button Content="End" HorizontalAlignment="Left" Margin="486,343,0,0" VerticalAlignment="Top" Click="EndButton_Click" Height="50" Width="120" FontSize="36" FontFamily="Hancom MalangMalang Bold"/>
-        <StackPanel VerticalAlignment="Top" HorizontalAlignment="Center" Margin="0,50,0,0" Width="400">
-            <TextBlock Text="집중 시 볼륨 (%)" Foreground="Black" FontWeight="Bold" Margin="0,0,0,5"/>
-            <Slider x:Name="FocusedSlider" Minimum="0" Maximum="100" Value="100" TickFrequency="10" IsSnapToTickEnabled="True" Margin="0,0,0,20"/>
+        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Width="400">
 
-            <TextBlock Text="비집중 시 볼륨 (%)" Foreground="Black" FontWeight="Bold" Margin="0,0,0,5"/>
-            <Slider x:Name="UnfocusedSlider" Minimum="0" Maximum="100" Value="10" TickFrequency="10" IsSnapToTickEnabled="True" Margin="0,0,0,20"/>
+            <Border Background="White" BorderBrush="#DDDDDD" BorderThickness="1" Padding="10" Margin="0,0,0,20">
+                <TextBlock x:Name="StatusText" Text="상태: 대기 중 ⚪" FontSize="18" FontWeight="Bold" Foreground="#555555" HorizontalAlignment="Center"/>
+            </Border>
 
-            <Button Content="설정 적용" Click="ApplyButton_Click" Height="40" Background="LightGray"/>
+            <StackPanel Margin="0,0,0,30">
+                <TextBlock Text="집중 시 볼륨 (%)" Foreground="Black" FontWeight="Bold" Margin="0,0,0,5"/>
+                <Grid Margin="0,0,0,15">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="60"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Slider x:Name="FocusedSlider" Minimum="0" Maximum="100" Value="100" TickFrequency="5" IsSnapToTickEnabled="True" VerticalAlignment="Center" Margin="0,0,15,0"/>
+                    <TextBox Grid.Column="1" Text="{Binding ElementName=FocusedSlider, Path=Value, UpdateSourceTrigger=PropertyChanged, StringFormat={}{0:0}}" VerticalContentAlignment="Center" HorizontalContentAlignment="Center" FontSize="14" FontWeight="Bold"/>
+                </Grid>
+
+                <TextBlock Text="비집중 시 볼륨 (%)" Foreground="Black" FontWeight="Bold" Margin="0,0,0,5"/>
+                <Grid Margin="0,0,0,20">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="60"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Slider x:Name="UnfocusedSlider" Minimum="0" Maximum="100" Value="10" TickFrequency="5" IsSnapToTickEnabled="True" VerticalAlignment="Center" Margin="0,0,15,0"/>
+                    <TextBox Grid.Column="1" Text="{Binding ElementName=UnfocusedSlider, Path=Value, UpdateSourceTrigger=PropertyChanged, StringFormat={}{0:0}}" VerticalContentAlignment="Center" HorizontalContentAlignment="Center" FontSize="14" FontWeight="Bold"/>
+                </Grid>
+
+                <Button Content="설정 적용" Click="ApplyButton_Click" Height="40" Background="#E0E0E0" FontSize="14" FontWeight="Bold"/>
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                <Button x:Name="StartButton" Content="Start" Click="StartButton_Click" Height="50" Width="120" Margin="0,0,20,0" Background="#4CAF50" Foreground="White" FontSize="22" FontWeight="Bold"/>
+                <Button x:Name="EndButton" Content="Stop" Click="EndButton_Click" Height="50" Width="120" Background="#F44336" Foreground="White" FontSize="22" FontWeight="Bold"/>
+            </StackPanel>
+
         </StackPanel>
     </Grid>
 </Window>
