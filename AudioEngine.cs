@@ -1,15 +1,17 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using NAudio.CoreAudioApi;
 
-namespace are_you_ther
+namespace are_you_there
 {
     class AudioEngine
     {
         // 1. 필요한 Windows API 및 상수 정의
         private const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
         private const uint WINEVENT_OUTOFCONTEXT = 0x0000;
+        private const uint WM_QUIT = 0x0012;
 
         private delegate void WinEventDelegate(IntPtr hWinEvent, uint eventType, IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime);
 
@@ -21,6 +23,21 @@ namespace are_you_ther
 
         [DllImport("user32.dll")]
         private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint lpdwProcessId);
+        [DllImport("user32.dll")]
+        private static extern sbyte GetMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
+
+        [DllImport("user32.dll")]
+        private static extern bool TranslateMessage(ref MSG lpMsg);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr DispatchMessage(ref MSG lpMsg);
+
+        [DllImport("user32.dll")]
+        private static extern bool PostThreadMessage(uint idThread, uint Msg, UIntPtr wParam, IntPtr lParam);
+
+        [DllImport("kernel32.dll")]
+        private static extern uint GetCurrentThreadId();
+
         [StructLayout(LayoutKind.Sequential)]
         public struct MSG
         {
@@ -32,26 +49,21 @@ namespace are_you_ther
             public System.Drawing.Point pt;
         }
 
-        [DllImport("user32.dll")]
-        private static extern sbyte GetMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
-
-        [DllImport("user32.dll")]
-        private static extern bool TranslateMessage(ref MSG lpMsg);
-
-        [DllImport("user32.dll")]
-        private static extern IntPtr DispatchMessage(ref MSG lpMsg);
-
         // 2. 필드 유지 (GC 방지)
-        private static WinEventDelegate _hookDelegate;
+        private static WinEventDelegate? _hookDelegate;
         private static IntPtr _hookHandle;
         private static uint _lastActivePID = 0;
+        private static uint? _myPID = null;
+        private static uint _messageLoopThreadId;
+        private static bool _isRunning;
 
         // 볼륨 세팅값
         private static float focused = 1.0f;     // 100%
         private static float unfocused = 0.1f;   // 10%
 
-        // 원래 볼륨 복구를 위한 딕셔너리 (Session Identifier를 Key로 사용)
+        // 원래 볼륨 복구를 위한 딕셔너리
         private static readonly Dictionary<string, float> org_dict = new();
+        private static readonly Dictionary<uint, float> org_process_dict = new();
 
         public static void SetVolume(float focused_input,  float unfocused_input)
         {
@@ -75,6 +87,19 @@ namespace are_you_ther
                 }
                 Environment.Exit(0); // 안전하게 정상 종료
             };
+
+            if (_isRunning)
+            {
+                Console.WriteLine("이미 엔진이 실행 중입니다.");
+                return;
+            }
+
+            _isRunning = true;
+            _messageLoopThreadId = GetCurrentThreadId();
+            if (!_myPID.HasValue)
+            {
+                _myPID = (uint)System.Diagnostics.Process.GetCurrentProcess().Id;
+            }
 
             // 기존 볼륨 세팅 저장
             SaveOriginalVolumes();
@@ -108,13 +133,28 @@ namespace are_you_ther
 
         public static void EndEngine()
         {
-            // 프로그램 종료 시 훅 해제 (이벤트 루프가 끝나면 실행됨)
+            if (!_isRunning)
+            {
+                Console.WriteLine("엔진이 실행 중이 아닙니다.");
+                return;
+            }
+
             if (_hookHandle != IntPtr.Zero)
             {
                 UnhookWinEvent(_hookHandle);
-                RestoreOriginalVolumes();
-                Console.WriteLine("훅 해제 및 볼륨 복구 완료. 프로그램 종료.");
+                _hookHandle = IntPtr.Zero;
             }
+
+            RestoreOriginalVolumes();
+            Console.WriteLine("훅 해제 및 볼륨 복구 완료. 프로그램 종료.");
+
+            if (_messageLoopThreadId != 0)
+            {
+                PostThreadMessage(_messageLoopThreadId, WM_QUIT, UIntPtr.Zero, IntPtr.Zero);
+                _messageLoopThreadId = 0;
+            }
+
+            _isRunning = false;
         }
 
         // 초기 볼륨 저장 함수
@@ -128,11 +168,16 @@ namespace are_you_ther
             {
                 using var session = sessions[i];
                 string sessionId = session.GetSessionIdentifier;
+                float currentVolume = session.SimpleAudioVolume.Volume;
+                uint processId = session.GetProcessID;
 
-                // 아직 저장되지 않은 세션이라면 저장
                 if (!org_dict.ContainsKey(sessionId))
                 {
-                    org_dict.Add(sessionId, session.SimpleAudioVolume.Volume);
+                    org_dict.Add(sessionId, currentVolume);
+                }
+                if (processId != 0 && !org_process_dict.ContainsKey(processId))
+                {
+                    org_process_dict.Add(processId, currentVolume);
                 }
             }
         }
@@ -141,10 +186,14 @@ namespace are_you_ther
         {
             GetWindowThreadProcessId(hwnd, out uint currentPID);
 
+            if (_myPID.HasValue && currentPID == _myPID.Value)
+            {
+                return;
+            }
+
             if (currentPID == _lastActivePID) return;
 
             _lastActivePID = currentPID;
-            Console.WriteLine($"[이벤트 발생] 포커스 변경 -> PID: {currentPID}");
 
             AdjustVolume(currentPID);
         }
@@ -156,31 +205,31 @@ namespace are_you_ther
             using var device = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
             var sessions = device.AudioSessionManager.Sessions;
 
+            string targetProcessName = GetProcessNameSafe(targetPID) ?? string.Empty;
+
             for (int i = 0; i < sessions.Count; i++)
             {
                 using var session = sessions[i];
 
-                // 세션의 PID를 바로 가져올 수 있습니다. (QueryInterface 필요 없음!)
                 uint processId = session.GetProcessID;
-
-                // 시스템 소리(보통 PID 0)는 건드리지 않는 것이 좋습니다.
                 if (processId == 0) continue;
 
                 string sessionId = session.GetSessionIdentifier;
-                // 아직 저장되지 않은 세션이라면 저장
+                float currentVolume = session.SimpleAudioVolume.Volume;
+                string sessionProcessName = GetProcessNameSafe(processId) ?? string.Empty;
+                bool isFocused = processId == targetPID || (!string.IsNullOrEmpty(targetProcessName) && targetProcessName.Equals(sessionProcessName, StringComparison.OrdinalIgnoreCase));
+                float newVolume = isFocused ? focused : unfocused;
+
                 if (!org_dict.ContainsKey(sessionId))
                 {
-                    org_dict.Add(sessionId, session.SimpleAudioVolume.Volume);
+                    org_dict.Add(sessionId, currentVolume);
+                    if (processId != 0 && !org_process_dict.ContainsKey(processId))
+                    {
+                        org_process_dict.Add(processId, currentVolume);
+                    }
                 }
 
-                if (processId == targetPID)
-                {
-                    session.SimpleAudioVolume.Volume = focused;
-                }
-                else
-                {
-                    session.SimpleAudioVolume.Volume = unfocused;
-                }
+                session.SimpleAudioVolume.Volume = newVolume;
             }
         }
 
@@ -196,11 +245,33 @@ namespace are_you_ther
             {
                 using var session = sessions[i];
                 string sessionId = session.GetSessionIdentifier;
+                uint processId = session.GetProcessID;
+                float currentVolume = session.SimpleAudioVolume.Volume;
+                string displayName = session.DisplayName?.Trim();
 
                 if (org_dict.ContainsKey(sessionId))
                 {
-                    session.SimpleAudioVolume.Volume = org_dict[sessionId];
+                    float originalVolume = org_dict[sessionId];
+                    session.SimpleAudioVolume.Volume = originalVolume;
                 }
+                else if (processId != 0 && org_process_dict.ContainsKey(processId))
+                {
+                    float originalVolume = org_process_dict[processId];
+                    session.SimpleAudioVolume.Volume = originalVolume;
+                }
+            }
+        }
+
+        private static string? GetProcessNameSafe(uint pid)
+        {
+            try
+            {
+                using var process = Process.GetProcessById((int)pid);
+                return process.ProcessName;
+            }
+            catch
+            {
+                return null;
             }
         }
     }

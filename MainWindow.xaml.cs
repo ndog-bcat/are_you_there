@@ -1,5 +1,4 @@
-﻿using are_you_ther;
-using System.Text;
+﻿using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -20,16 +19,27 @@ namespace are_you_there
         }
         private void StartButton_Click(object sender, RoutedEventArgs e)
         {
-            // UI 스레드가 얼지 않도록 별도 스레드에서 엔진 실행
+            float focusedVolume = (float)(FocusedSlider.Value / 100.0);
+            float unfocusedVolume = (float)(UnfocusedSlider.Value / 100.0);
+            AudioEngine.SetVolume(focusedVolume, unfocusedVolume);
+
             System.Threading.Tasks.Task.Run(() =>
             {
-                AudioEngine.SetVolume(1.0f, 0.1f);
                 AudioEngine.StartEngine();
             });
         }
+
         private void EndButton_Click(object sender, RoutedEventArgs e)
         {
             AudioEngine.EndEngine();
+        }
+
+        private void ApplyButton_Click(object sender, RoutedEventArgs e)
+        {
+            float focusedVolume = (float)(FocusedSlider.Value / 100.0);
+            float unfocusedVolume = (float)(UnfocusedSlider.Value / 100.0);
+            AudioEngine.SetVolume(focusedVolume, unfocusedVolume);
+            MessageBox.Show($"설정 적용됨: 집중 {FocusedSlider.Value}% / 비집중 {UnfocusedSlider.Value}%", "볼륨 설정", MessageBoxButton.OK, MessageBoxImage.Information);
         }
     }
 }
